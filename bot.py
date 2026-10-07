@@ -23,7 +23,8 @@ import urllib.request
 BLOG = "https://samjobss.blogspot.com"
 FEED_URL = BLOG + "/feeds/posts/default?alt=json&max-results=25"
 STATE_FILE = os.environ.get("STATE_FILE", "sent.json")
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+# keep only the characters a Telegram token can contain (drops hidden RTL marks, spaces, new lines)
+TOKEN = re.sub(r"[^0-9A-Za-z:_-]", "", os.environ.get("TELEGRAM_BOT_TOKEN", ""))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 OFFICIAL = "@samjobs_team"
@@ -59,7 +60,7 @@ FIELDS = {
     "period": ["فترة التقديم", "موعد التقديم", "التقديم"],
 }
 
-END_LABEL = re.compile(r"^انتهاء-\d{4}-\d{2}-\d{2}$")
+END_LABEL = re.compile(r"^انتهاء\s*-\s*\d{4}-\d{2}-\d{2}$")
 PLACEHOLDERS = ("...", "…", "اسم الجهة", "المسمى الوظيفي", "المدينة", "ضع ")
 
 
