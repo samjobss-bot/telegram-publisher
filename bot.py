@@ -23,12 +23,8 @@ import urllib.request
 BLOG = "https://samjobss.blogspot.com"
 FEED_URL = BLOG + "/feeds/posts/default?alt=json&max-results=25"
 STATE_FILE = os.environ.get("STATE_FILE", "sent.json")
-# the token looks like 123456789:AAH... ; pick it out even if extra text (e.g. "API:") or hidden marks were pasted with it
-_RAW_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-_CLEAN_TOKEN = re.sub(r"[^0-9A-Za-z:_-]", "", _RAW_TOKEN)
-_m = re.search(r"\d{6,}:[A-Za-z0-9_-]{30,}", _CLEAN_TOKEN)
-TOKEN = _m.group(0) if _m else _CLEAN_TOKEN
-TOKEN_OK = bool(_m)
+# keep only the characters a Telegram token can contain (drops hidden RTL marks, spaces, new lines)
+TOKEN = re.sub(r"[^0-9A-Za-z:_-]", "", os.environ.get("TELEGRAM_BOT_TOKEN", ""))
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 
 OFFICIAL = "@samjobs_team"
@@ -157,7 +153,7 @@ def build_message(post):
     if post["period"]:
         lines.append("📅 التقديم: %s" % esc(post["period"]))
     lines.append("")
-    lines.append("🔗 التفاصيل: %s" % post["link"])
+    lines.append('🔗 للتقديم: <a href="%s">اضغط هنا</a>' % html.escape(post["link"], quote=True))
     return "\n".join(lines)
 
 
@@ -170,6 +166,8 @@ def send(chat, text):
         "chat_id": chat,
         "text": text,
         "parse_mode": "HTML",
+        "link_preview_options": json.dumps({"is_disabled": True}),
+        "disable_web_page_preview": "true",
     }).encode("utf-8")
     for attempt in range(3):
         try:
@@ -210,7 +208,6 @@ def main():
     if not TOKEN and not DRY_RUN:
         log("TELEGRAM_BOT_TOKEN is missing")
         return 1
-    log("token shape ok: %s (saved length %d, used length %d)" % (TOKEN_OK, len(_RAW_TOKEN), len(TOKEN)))
     posts = [parse_entry(e) for e in fetch_posts()]
     sent = load_state()
 
