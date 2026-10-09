@@ -156,6 +156,14 @@ def route(post):
     return targets
 
 
+YEAR_RE = re.compile(r"\s*(?<![0-9٠-٩/\-])(?:19|20|١٩|٢٠)[0-9٠-٩]{2}(?![0-9٠-٩/\-])(?:هـ|م(?![ء-ي]))?")
+
+
+def strip_year(text):
+    """'من 1 أكتوبر 2026 إلى 30 أكتوبر 2026' -> 'من 1 أكتوبر إلى 30 أكتوبر' (Telegram only)."""
+    return re.sub(r"\s{2,}", " ", YEAR_RE.sub("", text)).strip()
+
+
 def build_message(post):
     esc = html.escape
     lines = ["💼 <b>%s</b>" % esc(post["title"])]
@@ -164,7 +172,7 @@ def build_message(post):
     if post["city"]:
         lines.append("📍 %s" % esc(post["city"]))
     if post["period"]:
-        lines.append("📅 التقديم: %s" % esc(post["period"]))
+        lines.append("📅 التقديم: %s" % esc(strip_year(post["period"])))
     lines.append("")
     lines.append('🔗 للتقديم: <a href="%s">اضغط هنا</a>' % html.escape(post["link"], quote=True))
     return "\n".join(lines)
