@@ -42,13 +42,13 @@ CHANNELS = {
 
 # channel key -> words searched in the post labels and in the city field
 ROUTES = [
+    ("military", ["عسكري"]),
     ("riyadh", ["الرياض"]),
     ("jeddah", ["جدة"]),
     ("makkah", ["مكة"]),
     ("madinah", ["المدينة المنورة", "المدينة"]),
     ("qassim", ["القصيم", "بريدة", "عنيزة"]),
     ("dammam", ["الدمام", "المنطقة الشرقية", "الخبر", "الظهران", "الأحساء", "الجبيل", "القطيف"]),
-    ("military", ["عسكري"]),
     ("remote", ["عن بعد"]),
 ]
 
@@ -62,6 +62,77 @@ FIELDS = {
 
 END_LABEL = re.compile(r"^انتهاء\s*-\s*\d{4}-\d{2}-\d{2}$")
 PLACEHOLDERS = ("...", "…", "اسم الجهة", "المسمى الوظيفي", "المدينة", "ضع ")
+
+
+# military / security entities: a post that mentions any of them also goes to the military channel
+MILITARY_NAMES = [
+    "وزارة الدفاع",
+    "القوات البرية الملكية السعودية",
+    "قوات الدفاع الجوي الملكي السعودي",
+    "القوات الجوية الملكية السعودية",
+    "القوات البحرية الملكية السعودية",
+    "قوة الصواريخ الاستراتيجية",
+    "الخدمات الصحية لوزارة الدفاع",
+    "وزارة الحرس الوطني",
+    "رئاسة بقوات الحرس الوطني",
+    "وزارة الداخلية",
+    "الأمن العام",
+    "شرطة",
+    "المرور",
+    "أمن الطرق",
+    "دوريات الأمن",
+    "قوات الطوارئ الخاصة",
+    "حرس الحدود",
+    "المديرية العامة للسجون",
+    "المديرية العامة للدفاع المدني",
+    "قوات الأمن الخاصة",
+    "الإدارة العامة لحماية المنشآت",
+    "الجوازات",
+    "رئاسة الاستخبارات العامة",
+    "رئاسة أمن الدولة",
+    "المباحث العامة",
+    "طيران الأمن",
+    "رئاسة الحرس الملكي",
+    "الهيئة الملكية للجبيل وينبع",
+    "الإدارة العسكرية",
+    "أمن المنشآت الصناعية",
+    "الكليات والمعاهد العسكرية",
+    "كلية الملك عبد العزيز الحربية",
+    "كلية الملك فهد الأمنية",
+    "كلية الملك فهد الحربية",
+    "كلية الدفاع الجوي",
+    "كلية الأمير سلطان بن عبد العزيز العسكرية",
+    "كلية الملك خالد العسكرية",
+    "كلية قوى الأمن الداخلي",
+    "معهد التدريب العسكري المهني",
+    "معهد حرس الحدود",
+    "قوات الطوارئ",
+    "كلية الملك فيصل الجوية",
+    "الإدارة العامة للخدمات الطبية للقوات المسلحة المستشفيات العسكرية",
+    "مركز الحرب الجوية",
+    "القوات الخاصة الأمنية",
+    "الخدمات الطبية للقوات المسلحة",
+    "المستشفيات العسكرية",
+]
+
+
+def norm(text):
+    """Arabic text for matching: no diacritics / tatweel, unified alef, teh marbuta and yeh."""
+    text = re.sub(r"[\u064B-\u0652\u0640]", "", text or "")
+    text = re.sub("[أإآ]", "ا", text)
+    return text.replace("ة", "ه").replace("ى", "ي")
+
+
+_MILITARY_NORM = [(norm(n), n) for n in MILITARY_NAMES]
+
+
+def military_match(text):
+    """Returns the first military entity found in the text, or ''."""
+    t = norm(text)
+    for n, original in _MILITARY_NORM:
+        if n and n in t:
+            return original
+    return ""
 
 
 def log(*a):
@@ -132,7 +203,9 @@ def parse_entry(entry):
     content = (entry.get("content") or {}).get("$t") or (entry.get("summary") or {}).get("$t") or ""
     details = parse_details(content)
     title = (entry.get("title") or {}).get("$t", "").strip()
+    page_text = " ".join([title] + labels + html_to_lines(content))
     return {
+        "military": military_match(page_text),
         "image": first_image(content),
         "id": (entry.get("id") or {}).get("$t", link),
         "title": details.get("title") or title,
@@ -148,6 +221,8 @@ def route(post):
     """Returns the list of target channels: official first, then matching ones."""
     haystack = " ".join(post["labels"] + [post["city"]])
     targets = [OFFICIAL]
+    if post.get("military"):
+        targets.append(CHANNELS["military"])
     for key, words in ROUTES:
         if any(w in haystack for w in words):
             ch = CHANNELS[key]
@@ -252,6 +327,8 @@ def main():
     for p in new:
         text = build_message(p)
         targets = route(p)
+        if p["military"]:
+            log("military entity found: %s | %s" % (p["military"], p["title"]))
         ok_official = send(targets[0], text, p["image"])
         if not ok_official:
             log("official channel failed, will retry next run:", p["title"])
