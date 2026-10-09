@@ -109,6 +109,18 @@ def parse_details(content):
     return out
 
 
+def first_image(content):
+    """The first image of the post (the employer logo) at a decent size, or ''."""
+    m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', content or "", re.I)
+    if not m:
+        return ""
+    url = html.unescape(m.group(1)).strip()
+    if not url.startswith("http"):
+        return ""
+    url = url.replace("http://", "https://", 1)
+    return re.sub(r"/s\d{2,4}(-c)?/", "/s800/", url)
+
+
 def parse_entry(entry):
     link = ""
     for l in entry.get("link", []):
@@ -121,6 +133,7 @@ def parse_entry(entry):
     details = parse_details(content)
     title = (entry.get("title") or {}).get("$t", "").strip()
     return {
+        "image": first_image(content),
         "id": (entry.get("id") or {}).get("$t", link),
         "title": details.get("title") or title,
         "org": details.get("org", ""),
@@ -157,18 +170,12 @@ def build_message(post):
     return "\n".join(lines)
 
 
-def send(chat, text):
+def tg(method, params):
     if DRY_RUN:
-        print("---- %s ----\n%s\n" % (chat, text))
+        print("---- %s %s ----\n%s\n" % (method, params.get("chat_id"), params.get("caption") or params.get("text")))
         return True
-    url = "https://api.telegram.org/bot%s/sendMessage" % TOKEN
-    body = urllib.parse.urlencode({
-        "chat_id": chat,
-        "text": text,
-        "parse_mode": "HTML",
-        "link_preview_options": json.dumps({"is_disabled": True}),
-        "disable_web_page_preview": "true",
-    }).encode("utf-8")
+    url = "https://api.telegram.org/bot%s/%s" % (TOKEN, method)
+    body = urllib.parse.urlencode(params).encode("utf-8")
     for attempt in range(3):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=30) as r:
@@ -184,12 +191,27 @@ def send(chat, text):
                 log("rate limited, waiting", wait)
                 time.sleep(wait)
                 continue
-            log("telegram error", chat, e.code, info.get("description", raw[:200]))
+            log("telegram error", method, params.get("chat_id"), e.code, info.get("description", raw[:200]))
             return False
         except Exception as e:  # network problem
-            log("network error", chat, e)
+            log("network error", params.get("chat_id"), e)
             time.sleep(3)
     return False
+
+
+def send(chat, text, image=""):
+    """Photo with the text as its caption; plain text if there is no image or the photo fails."""
+    if image and len(text) <= 1000:
+        if tg("sendPhoto", {"chat_id": chat, "photo": image, "caption": text, "parse_mode": "HTML"}):
+            return True
+        log("photo failed, sending text only:", chat)
+    return tg("sendMessage", {
+        "chat_id": chat,
+        "text": text,
+        "parse_mode": "HTML",
+        "link_preview_options": json.dumps({"is_disabled": True}),
+        "disable_web_page_preview": "true",
+    })
 
 
 def load_state():
@@ -222,13 +244,13 @@ def main():
     for p in new:
         text = build_message(p)
         targets = route(p)
-        ok_official = send(targets[0], text)
+        ok_official = send(targets[0], text, p["image"])
         if not ok_official:
             log("official channel failed, will retry next run:", p["title"])
             continue
         for ch in targets[1:]:
             time.sleep(1.5)
-            if not send(ch, text):
+            if not send(ch, text, p["image"]):
                 log("failed:", ch, p["title"])
         sent.append(p["id"])
         changed = True
