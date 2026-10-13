@@ -136,6 +136,84 @@ def military_match(text):
     return ""
 
 
+# ---------- the first emoji of the message depends on the kind of job / employer ----------
+DEFAULT_EMOJI = "◄"   # the white left-pointing arrow, used when the kind of job is not recognised
+
+# specific employers (matched as whole words in employer name / title / labels)
+COMPANY_EMOJI = [
+    ("🔴", ["جرير"]),
+    ("🟣", ["سوا", "stc"]),
+    ("🔵", ["موبايلي", "mobily"]),
+]
+
+# military entities that are really security services -> shield instead of helmet
+SECURITY_WORDS = ["الأمن العام", "شرطة", "المرور", "أمن الطرق", "دوريات", "الطوارئ", "حرس الحدود",
+                  "السجون", "الدفاع المدني", "الأمن الخاصة", "الأمنية", "حماية المنشآت", "الجوازات",
+                  "الاستخبارات", "أمن الدولة", "المباحث", "طيران الأمن", "أمن المنشآت", "وزارة الداخلية",
+                  "قوى الأمن"]
+NOT_MILITARY_FOR_EMOJI = ["الهيئة الملكية للجبيل وينبع"]
+
+# employer type, first match wins (matched in employer name + job title + labels)
+TYPE_EMOJI = [
+    ("⚖️", ["وزارة العدل", "المحكمة", "المحاكم", "القضاء", "كتابة العدل", "النيابة العامة"]),
+    ("🏥", ["مستشفى", "مستشفيات", "وزارة الصحة", "الصحية", "صحة", "طبي", "طبية", "عيادة", "عيادات",
+            "صيدلية", "تمريض", "الهلال الأحمر", "مختبر"]),
+    ("🎓", ["جامعة", "جامعات", "كلية", "معهد", "وزارة التعليم", "مدرسة", "مدارس", "التعليم", "أكاديمية", "تعليم"]),
+    ("⛽", ["أرامكو", "نفط", "بترول", "بتروكيماويات", "سابك", "كهرباء", "طاقة", "غاز"]),
+    ("🏦", ["بنك", "مصرف", "المالية", "تمويل", "استثمار", "تأمين"]),
+    ("📡", ["اتصالات", "تقنية", "تكنولوجيا", "برمجيات", "سيبراني", "رقمي", "الذكاء الاصطناعي", "زين", "شبكات", "سدايا"]),
+    ("✈️", ["طيران", "مطار", "مطارات", "الخطوط", "الجوية السعودية"]),
+    ("🏛️", ["بلدية", "بلديات", "أمانة", "البلدي"]),
+    ("🏪", ["متجر", "متاجر", "تجزئة", "أسواق", "هايبر", "بنده", "العثيم", "الدانوب", "لولو", "ساكو", "ماركت", "بقالة"]),
+    ("🏨", ["فندق", "فنادق", "منتجع", "سياحة", "ضيافة"]),
+    ("🏗️", ["مقاولات", "مقاول", "إنشاءات", "هندسة", "هندسية", "عمارة", "تشييد", "معمارية"]),
+    ("🚚", ["نقل", "لوجست", "شحن", "سلاسل الإمداد", "توصيل", "مستودع"]),
+]
+
+
+def _find(text, words, exact=False):
+    t = norm(text).lower()
+    for w in words:
+        w = norm(w).lower()
+        pat = re.escape(w)
+        if exact:
+            pat = r"(?<![ء-يa-z0-9])" + pat + r"(?![ء-يa-z0-9])"
+        if re.search(pat, t):
+            return True
+    return False
+
+
+def pick_emoji(job_title, post_title, org, city, labels):
+    head = " ".join([job_title, post_title] + labels)   # job title + labels
+    main = head + " " + org                              # + employer
+    for emo, words in COMPANY_EMOJI:                     # 1) specific employers
+        if _find(main, words, exact=True):
+            return emo
+    if _find(head, ["منتهي بالتوظيف", "ينتهي بالتوظيف"]):     # 2) training programs and courses
+        return "🤝"
+    if _find(head, ["مبتدئ بالتوظيف", "مبتدي بالتوظيف"]):
+        return "💼"
+    if _find(head, ["تدريب تعاوني", "تعاوني"]) or _find(main, ["طويق"]):
+        return "🧩"
+    if _find(head, ["دورة", "دورات"]):
+        return "📚"
+    if _find(head, ["تدريب"]):
+        return "🧩"
+    if _find(head + " " + city, ["عن بعد"]):             # 3) remote
+        return "💻"
+    if _find(head, ["تسويق", "مبيعات"]):                  # 4) marketing and sales
+        return "📈"
+    ent = military_match(main)                           # 5) military / security
+    if ent in NOT_MILITARY_FOR_EMOJI:
+        ent = ""
+    if ent or _find(main, ["عسكري", "عسكرية"]):
+        return "🛡️" if (ent and _find(ent, SECURITY_WORDS)) else "🪖"
+    for emo, words in TYPE_EMOJI:                        # 6) employer type
+        if _find(main, words):
+            return emo
+    return DEFAULT_EMOJI
+
+
 def log(*a):
     print(*a, file=sys.stderr)
 
@@ -207,6 +285,8 @@ def parse_entry(entry):
     page_text = " ".join([title] + labels + html_to_lines(content))
     return {
         "military": military_match(page_text),
+        "emoji": pick_emoji(details.get("title", ""), title, details.get("org", ""),
+                            details.get("city", ""), labels),
         "image": first_image(content),
         "id": (entry.get("id") or {}).get("$t", link),
         "title": details.get("title") or title,
@@ -257,7 +337,7 @@ def strip_year(text):
 
 def build_message(post):
     esc = html.escape
-    lines = ["💼 <b>%s</b>" % esc(post["title"])]
+    lines = ["%s <b>%s</b>" % (post["emoji"], esc(post["title"]))]
     if post["org"]:
         lines.append("🏢 %s" % esc(post["org"]))
     if post["city"]:
