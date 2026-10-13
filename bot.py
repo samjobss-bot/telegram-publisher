@@ -58,6 +58,7 @@ FIELDS = {
     "org": ["الجهة", "جهة العمل", "الشركة"],
     "city": ["المدينة / المنطقة", "المدينة/المنطقة", "المدينة", "المنطقة", "الموقع"],
     "period": ["فترة التقديم", "موعد التقديم", "التقديم"],
+    "gender": ["الجنس المطلوب", "الجنس"],
 }
 
 END_LABEL = re.compile(r"^انتهاء\s*-\s*\d{4}-\d{2}-\d{2}$")
@@ -212,9 +213,24 @@ def parse_entry(entry):
         "org": details.get("org", ""),
         "city": details.get("city", ""),
         "period": details.get("period", ""),
+        "gender": gender_line(details.get("gender", "")),
         "labels": labels,
         "link": link,
     }
+
+
+def gender_line(value):
+    """'للنساء' / 'للجنسين' as a Telegram line; nothing for men-only or when not written."""
+    v = norm(value or "")
+    if not v:
+        return ""
+    women = any(w in v for w in ("نساء", "نسائي", "اناث", "انثي", "سيدات", "فتيات", "بنات"))
+    men = any(w in v for w in ("رجال", "ذكور", "ذكر", "شباب"))
+    if "جنسين" in v or (women and men):
+        return "👥 للجنسين"
+    if women:
+        return "👩 للنساء"
+    return ""
 
 
 def route(post):
@@ -246,6 +262,8 @@ def build_message(post):
         lines.append("🏢 %s" % esc(post["org"]))
     if post["city"]:
         lines.append("📍 %s" % esc(post["city"]))
+    if post["gender"]:
+        lines.append(post["gender"])
     if post["period"]:
         lines.append("📅 التقديم: %s" % esc(strip_year(post["period"])))
     lines.append("")
