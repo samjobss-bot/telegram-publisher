@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BLOG = "https://samjobss.blogspot.com"
+BLOG = "https://www.samjobss.com"
 FEED_URL = BLOG + "/feeds/posts/default?alt=json&max-results=25"
 STATE_FILE = os.environ.get("STATE_FILE", "sent.json")
 # keep only the characters a Telegram token can contain (drops hidden RTL marks, spaces, new lines)
