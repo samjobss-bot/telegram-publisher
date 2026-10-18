@@ -52,6 +52,9 @@ ROUTES = [
     ("remote", ["عن بعد"]),
 ]
 
+# city words of each region channel (used only to put that channel's cities first in the message)
+CHANNEL_WORDS = {CHANNELS[k]: w for k, w in ROUTES if k not in ("military", "remote")}
+
 # names of the fields in the "job details" list of the article template
 FIELDS = {
     "title": ["المسمى الوظيفي", "المسمى", "الوظيفة", "البرنامج"],
@@ -335,13 +338,35 @@ def strip_year(text):
     return re.sub(r"\s{2,}", " ", YEAR_RE.sub("", text)).strip()
 
 
-def build_message(post):
+CITY_SPLIT = re.compile(r"[،,]")
+
+
+def _more(n):
+    if n == 1:
+        return "(+مدينة أخرى)"
+    if n == 2:
+        return "(+مدينتان أخريان)"
+    return "(+%d %s أخرى)" % (n, "مدن" if n <= 10 else "مدينة")
+
+
+def short_cities(city, first_words=()):
+    """3 cities or fewer: unchanged. More: the first three (the channel's own cities first) + how many remain.
+    Message text only - route() and pick_emoji() still read the full city value."""
+    items = [c.strip() for c in CITY_SPLIT.split(city) if c.strip()]
+    if len(items) <= 3:
+        return city
+    mine = [i for i, c in enumerate(items) if any(w in c for w in first_words)]
+    order = mine + [i for i in range(len(items)) if i not in mine]
+    return "، ".join(items[i] for i in order[:3]) + " " + _more(len(items) - 3)
+
+
+def build_message(post, channel=None):
     esc = html.escape
     lines = ["%s <b>%s</b>" % (post["emoji"], esc(post["title"]))]
     if post["org"]:
         lines.append("🏢 %s" % esc(post["org"]))
     if post["city"]:
-        lines.append("📍 %s" % esc(post["city"]))
+        lines.append("📍 %s" % esc(short_cities(post["city"], CHANNEL_WORDS.get(channel, ()))))
     if post["gender"]:
         lines.append(post["gender"])
     if post["period"]:
@@ -433,7 +458,7 @@ def main():
             continue
         for ch in targets[1:]:
             time.sleep(1.5)
-            if not send(ch, text, p["image"]):
+            if not send(ch, build_message(p, ch), p["image"]):
                 log("failed:", ch, p["title"])
         sent.append(p["id"])
         changed = True
